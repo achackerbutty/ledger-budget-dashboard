@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ledger — Personal Budget Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500&display=swap');
+  :root {
+    --bg: #f5f4f0; --surface: #ffffff; --surface2: #f0ede8;
+    --border: rgba(0,0,0,0.1); --border2: rgba(0,0,0,0.18);
+    --text: #1a1a18; --text2: #6b6b67; --text3: #9a9a96;
+    --green: #1D9E75; --green-dark: #0F6E56; --green-light: #E1F5EE;
+    --red: #E24B4A; --amber: #BA7517; --blue: #185FA5;
+    --radius: 8px; --radius-lg: 12px; --radius-xl: 16px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'DM Sans', system-ui, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; min-height: 100vh; }
+  a { color: var(--blue); }
+
+  /* Header */
+  .header { background: var(--surface); border-bottom: 0.5px solid var(--border); padding: 0 28px; display: flex; align-items: center; justify-content: space-between; height: 58px; position: sticky; top: 0; z-index: 100; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand-icon { width: 30px; height: 30px; border-radius: 9px; background: var(--green); display: flex; align-items: center; justify-content: center; font-size: 15px; color: white; font-weight: 600; }
+  .brand-name { font-family: 'DM Serif Display', serif; font-size: 20px; letter-spacing: -0.3px; }
+  .nav { display: flex; gap: 2px; }
+  .nav-btn { padding: 6px 16px; border-radius: var(--radius); border: none; background: transparent; cursor: pointer; font-size: 13px; font-family: inherit; color: var(--text2); transition: background 0.15s, color 0.15s; }
+  .nav-btn:hover { background: var(--surface2); color: var(--text); }
+  .nav-btn.active { background: var(--surface2); color: var(--text); font-weight: 500; }
+  .header-actions { display: flex; gap: 8px; align-items: center; }
+  .icon-btn { padding: 6px 12px; border-radius: var(--radius); border: 0.5px solid var(--border2); background: transparent; cursor: pointer; font-size: 13px; font-family: inherit; color: var(--text2); }
+  .icon-btn:hover { background: var(--surface2); }
+
+  /* Main */
+  .main { max-width: 1120px; margin: 0 auto; padding: 28px; }
+  .view { display: none; }
+  .view.active { display: block; }
+
+  /* API key setup */
+  .setup-card { background: var(--surface); border-radius: var(--radius-xl); border: 0.5px solid var(--border); padding: 36px; max-width: 560px; margin: 60px auto; text-align: center; }
+  .setup-icon { font-size: 40px; margin-bottom: 16px; }
+  .setup-title { font-family: 'DM Serif Display', serif; font-size: 26px; margin-bottom: 8px; }
+  .setup-sub { font-size: 14px; color: var(--text2); line-height: 1.6; margin-bottom: 28px; }
+  .input-row { display: flex; gap: 8px; margin-bottom: 12px; }
+  .text-input { flex: 1; padding: 10px 14px; border-radius: var(--radius); border: 0.5px solid var(--border2); background: var(--surface2); font-size: 13px; font-family: monospace; color: var(--text); outline: none; }
+  .text-input:focus { border-color: var(--green); }
+  .btn-primary { padding: 10px 20px; border-radius: var(--radius); border: none; background: var(--green); color: white; font-size: 13px; font-family: inherit; font-weight: 500; cursor: pointer; white-space: nowrap; }
+  .btn-primary:hover { background: var(--green-dark); }
+  .btn-primary:disabled { background: #b4b2a9; cursor: not-allowed; }
+  .setup-note { font-size: 12px; color: var(--text3); }
+
+  /* Upload */
+  .page-title { font-size: 22px; font-weight: 500; margin-bottom: 20px; }
+  .upload-card { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius-xl); padding: 32px; }
+  .upload-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; flex-wrap: wrap; gap: 12px; }
+  .upload-heading { font-size: 17px; font-weight: 500; margin-bottom: 3px; }
+  .upload-sub { font-size: 13px; color: var(--text2); }
+  .folder-row { display: flex; align-items: center; gap: 8px; }
+  .folder-lbl { font-size: 12px; color: var(--text2); white-space: nowrap; }
+  .folder-val { font-size: 11px; font-family: monospace; padding: 5px 10px; border-radius: var(--radius); border: 0.5px solid var(--border2); background: var(--surface2); color: var(--text); max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .drop-zone { border: 1.5px dashed var(--border2); border-radius: var(--radius-lg); padding: 44px 24px; text-align: center; cursor: pointer; transition: border-color 0.2s, background 0.2s; background: var(--surface2); }
+  .drop-zone:hover, .drop-zone.over { border-color: var(--green); background: rgba(29,158,117,0.05); }
+  .drop-icon { font-size: 32px; margin-bottom: 10px; }
+  .drop-text { font-size: 15px; font-weight: 500; margin-bottom: 4px; }
+  .drop-hint { font-size: 13px; color: var(--text2); }
+  .file-list { margin-top: 16px; display: flex; flex-direction: column; gap: 8px; }
+  .file-item { background: var(--surface2); border: 0.5px solid var(--border); border-radius: var(--radius); padding: 12px 16px; display: flex; align-items: flex-start; gap: 12px; }
+  .file-badge { width: 36px; height: 36px; background: var(--green-light); border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: var(--green-dark); flex-shrink: 0; }
+  .file-info { flex: 1; min-width: 0; }
+  .file-name { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-size { font-size: 11px; color: var(--text3); margin-top: 1px; }
+  .file-err { font-size: 11px; color: #993C1D; background: #FAECE7; border-radius: 5px; padding: 5px 8px; margin-top: 6px; font-family: monospace; line-height: 1.5; word-break: break-word; }
+  .file-st { font-size: 12px; white-space: nowrap; flex-shrink: 0; color: var(--text2); padding-top: 2px; }
+  .file-st.processing { color: var(--green); }
+  .file-st.done { color: #3B6D11; }
+  .file-st.error { color: #993C1D; }
+  .rm-btn { background: none; border: none; cursor: pointer; color: var(--text3); font-size: 18px; line-height: 1; padding: 2px 4px; flex-shrink: 0; }
+  .rm-btn:hover { color: var(--red); }
+  .log-wrap { display: none; margin-top: 14px; }
+  .log-wrap.show { display: block; }
+  .log-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .log-label { font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.5px; }
+  .log-copy { font-size: 11px; padding: 3px 8px; border-radius: 4px; border: 0.5px solid var(--border2); background: transparent; cursor: pointer; color: var(--text2); font-family: inherit; }
+  .log-copy:hover { background: var(--surface2); }
+  .log-box { background: #0d1117; border-radius: var(--radius); padding: 14px 16px; font-family: monospace; font-size: 12px; color: #58a6ff; max-height: 320px; overflow-y: auto; line-height: 1.8; }
+  .lok { color: #3fb950; } .lerr { color: #f85149; } .lwarn { color: #d29922; } .ldim { color: #484f58; }
+  .process-btn { margin-top: 20px; width: 100%; padding: 13px; background: var(--green); color: white; border: none; border-radius: var(--radius-lg); font-size: 14px; font-weight: 500; cursor: pointer; font-family: inherit; transition: background 0.15s; }
+  .process-btn:hover:not(:disabled) { background: var(--green-dark); }
+  .process-btn:disabled { background: #b4b2a9; cursor: not-allowed; }
+
+  /* Dashboard */
+  .toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+  .sel { padding: 7px 12px; border-radius: var(--radius); border: 0.5px solid var(--border2); background: var(--surface); font-size: 13px; font-family: inherit; color: var(--text); cursor: pointer; outline: none; }
+  .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+  .mc { background: var(--surface2); border-radius: var(--radius-lg); padding: 16px 18px; }
+  .mc-lbl { font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 6px; }
+  .mc-val { font-size: 23px; font-weight: 500; }
+  .mc-chg { font-size: 11px; margin-top: 3px; color: var(--text2); }
+  .chg-up { color: var(--red); } .chg-dn { color: #3B6D11; }
+  .chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .cc { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius-lg); padding: 20px; }
+  .cc-title { font-size: 14px; font-weight: 500; margin-bottom: 14px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+  .leg-item { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text2); }
+  .leg-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+
+  /* Transactions */
+  .tx-wrap { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius-lg); padding: 22px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+  .chip { padding: 5px 12px; border-radius: 20px; border: 0.5px solid var(--border2); background: var(--surface); font-size: 12px; cursor: pointer; font-family: inherit; color: var(--text2); transition: all 0.12s; }
+  .chip.active { background: var(--green); color: white; border-color: var(--green); }
+  table { width: 100%; border-collapse: collapse; }
+  th { font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.5px; padding: 8px 12px; text-align: left; border-bottom: 0.5px solid var(--border); }
+  td { padding: 10px 12px; border-bottom: 0.5px solid var(--border); font-size: 13px; vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--surface2); }
+  .badge { display: inline-flex; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; white-space: nowrap; }
+  .amt { text-align: right; font-weight: 500; font-variant-numeric: tabular-nums; color: var(--red); }
+
+  /* Archive */
+  .arch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+  .arch-card { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius-lg); padding: 18px; cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s; }
+  .arch-card:hover { border-color: var(--green); box-shadow: 0 2px 8px rgba(29,158,117,0.1); }
+  .arch-month { font-size: 15px; font-weight: 500; margin-bottom: 4px; }
+  .arch-meta { font-size: 12px; color: var(--text2); }
+  .arch-total { font-size: 20px; font-weight: 500; margin-top: 10px; color: var(--green-dark); }
+  .arch-tag { display: inline-block; font-size: 10px; padding: 2px 8px; background: var(--green-light); color: #085041; border-radius: 4px; margin-top: 6px; font-family: monospace; }
+  .empty { text-align: center; padding: 60px 20px; color: var(--text2); grid-column: 1/-1; }
+
+  /* Settings modal */
+  .modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.35); z-index: 200; align-items: center; justify-content: center; }
+  .modal-bg.open { display: flex; }
+  .modal { background: var(--surface); border-radius: var(--radius-xl); padding: 30px; width: 460px; max-width: 95vw; border: 0.5px solid var(--border); box-shadow: 0 8px 32px rgba(0,0,0,0.12); }
+  .modal-title { font-size: 17px; font-weight: 500; margin-bottom: 22px; }
+  .field { margin-bottom: 16px; }
+  .field label { font-size: 12px; color: var(--text2); display: block; margin-bottom: 6px; }
+  .field input { width: 100%; padding: 9px 12px; border-radius: var(--radius); border: 0.5px solid var(--border2); background: var(--surface2); font-size: 13px; color: var(--text); font-family: inherit; outline: none; }
+  .field input:focus { border-color: var(--green); }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 22px; }
+  .btn-ghost { padding: 8px 16px; border-radius: var(--radius); border: 0.5px solid var(--border2); background: transparent; cursor: pointer; font-size: 13px; font-family: inherit; color: var(--text2); }
+
+  .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  @media (max-width: 760px) {
+    .metrics { grid-template-columns: 1fr 1fr; }
+    .chart-row { grid-template-columns: 1fr; }
+    .nav { display: none; }
+    .main { padding: 16px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="brand">
+    <div class="brand-icon">$</div>
+    <span class="brand-name">Ledger</span>
+  </div>
+  <nav class="nav">
+    <button class="nav-btn active" onclick="go('upload')">Upload</button>
+    <button class="nav-btn" onclick="go('dashboard')">Dashboard</button>
+    <button class="nav-btn" onclick="go('transactions')">Transactions</button>
+    <button class="nav-btn" onclick="go('archive')">Archive</button>
+  </nav>
+  <div class="header-actions">
+    <button class="icon-btn" onclick="openSettings()">⚙ Settings</button>
+  </div>
+</header>
+
+<main class="main">
+
+  <!-- Setup view (shown when no API key) -->
+  <div class="view active" id="view-setup">
+    <div class="setup-card">
+      <div class="setup-icon">🔑</div>
+      <div class="setup-title">Welcome to Ledger</div>
+      <div class="setup-sub">This app uses Claude AI to parse your credit card statements and categorize your spending. Enter your Anthropic API key to get started. Your key is stored only in your browser's local storage.</div>
+      <div class="input-row">
+        <input class="text-input" id="keyInput" type="password" placeholder="sk-ant-api03-..." />
+        <button class="btn-primary" onclick="saveKey()">Continue →</button>
+      </div>
+      <div class="setup-note">
+        Get a free API key at <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Upload view -->
+  <div class="view" id="view-upload">
+    <div class="page-title">Upload statements</div>
+    <div class="upload-card">
+      <div class="upload-top">
+        <div>
+          <div class="upload-heading">Drop your PDF statements</div>
+          <div class="upload-sub">Works with Amex, Chase, Citi, CapitalOne, and any text-based PDF</div>
+        </div>
+        <div class="folder-row">
+          <span class="folder-lbl">Archive folder:</span>
+          <span class="folder-val" id="folderDisplay">C:\Users\Desktop\CreditCardStatements</span>
+        </div>
+      </div>
+      <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileIn').click()">
+        <div class="drop-icon">📄</div>
+        <div class="drop-text">Drop PDF files here</div>
+        <div class="drop-hint">or click to browse your computer</div>
+      </div>
+      <input type="file" id="fileIn" accept=".pdf" multiple style="display:none" />
+      <div class="file-list" id="fileList"></div>
+      <div class="log-wrap" id="logWrap">
+        <div class="log-header">
+          <span class="log-label">Processing log</span>
+          <button class="log-copy" onclick="copyLog()">Copy log</button>
+        </div>
+        <div class="log-box" id="logBox"></div>
+      </div>
+      <button class="process-btn" id="processBtn" disabled onclick="processAll()">Process &amp; categorize statements</button>
+    </div>
+  </div>
+
+  <!-- Dashboard view -->
+  <div class="view" id="view-dashboard">
+    <div class="toolbar">
+      <div class="page-title" style="margin-bottom:0">Spending overview</div>
+      <select class="sel" id="dashPeriod" onchange="renderDash()"></select>
+    </div>
+    <div class="metrics" id="metrics"></div>
+    <div class="chart-row">
+      <div class="cc">
+        <div class="cc-title">Spend by category</div>
+        <div class="legend" id="pieLegend"></div>
+        <div style="position:relative;width:100%;height:220px"><canvas id="pieC"></canvas></div>
+      </div>
+      <div class="cc">
+        <div class="cc-title">Daily spend trend</div>
+        <div style="position:relative;width:100%;height:255px"><canvas id="lineC"></canvas></div>
+      </div>
+    </div>
+    <div class="cc">
+      <div class="cc-title">Category breakdown</div>
+      <div style="position:relative;width:100%;height:260px"><canvas id="barC"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Transactions view -->
+  <div class="view" id="view-transactions">
+    <div class="tx-wrap">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div style="font-size:16px;font-weight:500">All transactions</div>
+        <select class="sel" id="txPeriod" onchange="renderTx()"></select>
+      </div>
+      <div class="chips" id="chips"></div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Source</th><th style="text-align:right">Amount</th></tr></thead>
+          <tbody id="txBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Archive view -->
+  <div class="view" id="view-archive">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div style="font-size:16px;font-weight:500">Statement archive</div>
+      <div style="font-size:12px;color:var(--text2)" id="archFolder"></div>
+    </div>
+    <div class="arch-grid" id="archGrid"></div>
+  </div>
+
+</main>
+
+<!-- Settings modal -->
+<div class="modal-bg" id="settingsModal">
+  <div class="modal">
+    <div class="modal-title">Settings</div>
+    <div class="field">
+      <label>Anthropic API key</label>
+      <input id="sApiKey" type="password" placeholder="sk-ant-api03-..." style="font-family:monospace;font-size:12px" />
+    </div>
+    <div class="field">
+      <label>Archive folder path</label>
+      <input id="sFolderPath" style="font-family:monospace;font-size:12px" />
+    </div>
+    <div class="field">
+      <label>Monthly budget ($)</label>
+      <input id="sBudget" type="number" />
+    </div>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeSettings()">Cancel</button>
+      <button class="btn-primary" onclick="applySettings()">Save settings</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State & persistence ────────────────────────────────────────────────────
+const S = {
+  apiKey: '',
+  txs: [],
+  archive: {},
+  cfg: { folder: 'C:\\Users\\Desktop\\CreditCardStatements', budget: 3000 }
+};
+
+function persist() {
+  localStorage.setItem('ledger', JSON.stringify({ txs: S.txs, archive: S.archive, cfg: S.cfg, apiKey: S.apiKey }));
+}
+
+function hydrate() {
+  try {
+    const d = JSON.parse(localStorage.getItem('ledger') || '{}');
+    S.txs = d.txs || [];
+    S.archive = d.archive || {};
+    if (d.cfg) S.cfg = { ...S.cfg, ...d.cfg };
+    if (d.apiKey) S.apiKey = d.apiKey;
+  } catch(e) {}
+}
+
+// ── Navigation ─────────────────────────────────────────────────────────────
+function go(name) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById('view-' + name).classList.add('active');
+  const map = { setup:-1, upload:0, dashboard:1, transactions:2, archive:3 };
+  document.querySelectorAll('.nav-btn').forEach((b,i) => b.classList.toggle('active', i === map[name]));
+  if (name === 'dashboard') renderDash();
+  if (name === 'transactions') renderTx();
+  if (name === 'archive') renderArchive();
+}
+
+// ── API key ────────────────────────────────────────────────────────────────
+function saveKey() {
+  const v = document.getElementById('keyInput').value.trim();
+  if (!v.startsWith('sk-ant-')) { alert('Please enter a valid key starting with sk-ant-'); return; }
+  S.apiKey = v;
+  persist();
+  document.getElementById('folderDisplay').textContent = S.cfg.folder;
+  go('upload');
+  refreshPeriods();
+}
+
+// ── File handling ──────────────────────────────────────────────────────────
+let files = [];
+const dz = document.getElementById('dropZone');
+const fi = document.getElementById('fileIn');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('over'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('over'));
+dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('over'); addFiles(Array.from(e.dataTransfer.files).filter(f => f.type === 'application/pdf')); });
+fi.addEventListener('change', e => { addFiles(Array.from(e.target.files)); fi.value = ''; });
+
+function addFiles(arr) {
+  arr.forEach(f => { if (!files.find(x => x.name === f.name)) files.push({ file:f, name:f.name, size:f.size, status:'ready', err:'' }); });
+  renderFiles();
+  document.getElementById('processBtn').disabled = !files.some(f => f.status === 'ready');
+}
+function rmFile(i) { files.splice(i, 1); renderFiles(); document.getElementById('processBtn').disabled = !files.some(f => f.status === 'ready'); }
+function xe(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function renderFiles() {
+  const el = document.getElementById('fileList');
+  el.innerHTML = files.map((f,i) => `
+    <div class="file-item">
+      <div class="file-badge">PDF</div>
+      <div class="file-info">
+        <div class="file-name">${xe(f.name)}</div>
+        <div class="file-size">${(f.size/1024).toFixed(1)} KB</div>
+        ${f.err ? `<div class="file-err">${xe(f.err)}</div>` : ''}
+      </div>
+      <span class="file-st ${f.status}">${{ready:'Ready',processing:'⟳ Processing…',done:'✓ Done',error:'✗ Error'}[f.status]}</span>
+      ${f.status==='ready' ? `<button class="rm-btn" onclick="rmFile(${i})">×</button>` : ''}
+    </div>`).join('');
+}
+
+// ── PDF extraction ─────────────────────────────────────────────────────────
+async function pdfToText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = async e => {
+      try {
+        const task = pdfjsLib.getDocument({ data: new Uint8Array(e.target.result), verbosity: 0 });
+        const pdf = await task.promise;
+        let text = '';
+        for (let i = 1; i <= Math.min(pdf.numPages, 30); i++) {
+          const pg = await pdf.getPage(i);
+          const ct = await pg.getTextContent();
+          text += ct.items.map(x => x.str).join(' ') + '\n';
+        }
+        if (text.trim().length < 30) throw new Error('No text found in PDF. The file may be a scanned image — Ledger requires text-based PDFs.');
+        resolve(text);
+      } catch(err) { reject(err); }
+    };
+    reader.onerror = () => reject(new Error('Could not read file'));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+// ── Logging ────────────────────────────────────────────────────────────────
+function log(msg, cls='') {
+  document.getElementById('logWrap').classList.add('show');
+  const el = document.getElementById('logBox');
+  const d = document.createElement('div');
+  if (cls) d.className = cls;
+  d.textContent = msg;
+  el.appendChild(d);
+  el.scrollTop = el.scrollHeight;
+}
+function clearLog() {
+  document.getElementById('logWrap').classList.remove('show');
+  document.getElementById('logBox').innerHTML = '';
+}
+function copyLog() {
+  const text = document.getElementById('logBox').innerText;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.querySelector('.log-copy');
+    btn.textContent = 'Copied!';
+    setTimeout(() => btn.textContent = 'Copy log', 1500);
+  });
+}
+
+// ── JSON parsing ───────────────────────────────────────────────────────────
+function parseJSON(text) {
+  try { return JSON.parse(text); } catch(e) {}
+  let c = text.replace(/```json\s*/gi,'').replace(/```\s*/g,'').trim();
+  try { return JSON.parse(c); } catch(e) {}
+  const s = c.indexOf('{'), e = c.lastIndexOf('}');
+  if (s !== -1 && e > s) { try { return JSON.parse(c.slice(s, e+1)); } catch(e) {} }
+  throw new Error('Could not parse AI response as JSON. Response preview: ' + text.slice(0,150));
+}
+
+// ── Anthropic API call ─────────────────────────────────────────────────────
+async function claude(system, user, maxTokens = 4096) {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': S.apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: maxTokens,
+      system,
+      messages: [{ role: 'user', content: user }]
+    })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(`API error ${res.status}: ${err.error?.message || res.statusText}`);
+  }
+  const d = await res.json();
+  return d.content?.map(b => b.text || '').join('') || '';
+}
+
+// ── Coerce amount to number robustly ──────────────────────────────────────
+function toAmount(v) {
+  if (typeof v === 'number') return v;
+  if (typeof v === 'string') {
+    const n = parseFloat(v.replace(/[^0-9.-]/g, ''));
+    return isNaN(n) ? 0 : Math.abs(n);
+  }
+  return 0;
+}
+
+// ── Process ────────────────────────────────────────────────────────────────
+async function processAll() {
+  if (!S.apiKey) { alert('Please set your API key in Settings first.'); return; }
+  const btn = document.getElementById('processBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Processing…';
+  clearLog();
+  const now = new Date();
+  const fp = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i];
+    if (f.status !== 'ready') continue;
+    f.status = 'processing'; f.err = '';
+    renderFiles();
+    log(`\n[${i+1}] ${f.name}`);
+
+    try {
+      // ── Step 1: Extract PDF text ──────────────────────────────────────
+      log('  Step 1/3: Extracting PDF text...');
+      const txt = await pdfToText(f.file);
+      log(`  ✓ Extracted ${txt.length.toLocaleString()} characters across ${txt.split('\n').length} lines`, 'lok');
+      log(`  Preview: "${txt.substring(0,120).replace(/\n/g,' ')}..."`, 'ldim');
+
+      // ── Step 2: Call Claude ───────────────────────────────────────────
+      // Send up to 20,000 chars (covers most full statements)
+      const statementChunk = txt.substring(0, 20000);
+      log(`  Step 2/3: Sending ${statementChunk.length.toLocaleString()} chars to Claude AI...`);
+
+      const raw = await claude(
+        'You are a financial statement parser. Output ONLY raw valid JSON — no markdown, no code fences, no prose, no explanation. Just the JSON object.',
+        `Extract every purchase/charge transaction from this credit card statement.
+
+Return ONLY this exact JSON structure with no other text:
+{"period":"YYYY-MM","cardProvider":"string","transactions":[{"date":"YYYY-MM-DD","description":"string","amount":0.00,"category":"string"}]}
+
+Category must be exactly one of: Groceries, Dining, Travel, Shopping, Utilities, Healthcare, Entertainment, Fuel, Subscriptions, Other
+
+Rules:
+- period: the statement billing month as YYYY-MM. If unclear, use ${fp}
+- date: YYYY-MM-DD format. If only day is shown, infer full date from context
+- amount: positive decimal number (no currency symbols, no commas)
+- Skip any payments, credits, or refunds — only include charges/purchases
+- Include ALL purchase transactions you find, even if there are many
+- description: clean merchant name, max 50 chars
+
+Statement text:
+${statementChunk}`,
+        4096
+      );
+
+      log(`  ✓ AI response received (${raw.length} chars)`, 'lok');
+      log(`  Raw preview: "${raw.substring(0,200).replace(/\n/g,' ')}"`, 'ldim');
+
+      // ── Step 3: Parse & validate ──────────────────────────────────────
+      log('  Step 3/3: Parsing response...');
+      const p = parseJSON(raw);
+      log(`  ✓ JSON parsed. cardProvider="${p.cardProvider}", period="${p.period}", transactions array length=${Array.isArray(p.transactions)?p.transactions.length:'NOT AN ARRAY'}`, 'lok');
+
+      const period = /^\d{4}-\d{2}$/.test(p.period||'') ? p.period : fp;
+      const provider = p.cardProvider || f.name.replace(/\.pdf$/i,'');
+      const cats = ['Groceries','Dining','Travel','Shopping','Utilities','Healthcare','Entertainment','Fuel','Subscriptions','Other'];
+
+      // Show first few raw transactions for debugging
+      if (Array.isArray(p.transactions) && p.transactions.length > 0) {
+        log(`  First raw transaction: ${JSON.stringify(p.transactions[0])}`, 'ldim');
+      }
+
+      const txs = (Array.isArray(p.transactions) ? p.transactions : [])
+        .map(t => {
+          const amt = toAmount(t.amount);
+          return {
+            date: /^\d{4}-\d{2}-\d{2}$/.test(t.date||'') ? t.date : `${period}-01`,
+            description: String(t.description||'Unknown').slice(0,50),
+            amount: Math.round(amt * 100) / 100,
+            category: cats.includes(t.category) ? t.category : 'Other',
+            period, source: provider,
+            id: Math.random().toString(36).slice(2),
+            _rawAmt: t.amount  // keep for debug
+          };
+        })
+        .filter(t => t.amount > 0);
+
+      log(`  Transactions after filtering (amount > 0): ${txs.length}`, txs.length > 0 ? 'lok' : 'lwarn');
+
+      if (!txs.length) {
+        // Show detailed debug info before throwing
+        if (Array.isArray(p.transactions) && p.transactions.length > 0) {
+          const sample = p.transactions.slice(0,3).map(t => `amount=${JSON.stringify(t.amount)}`).join(', ');
+          throw new Error(`AI found ${p.transactions.length} transactions but all were filtered out. Sample amounts: ${sample}. Check that amounts are positive numbers.`);
+        }
+        throw new Error(`AI returned 0 transactions. The statement text may not contain recognizable transaction data. Check the text preview in the log above.`);
+      }
+
+      S.txs.push(...txs);
+      if (!S.archive[period]) S.archive[period] = { files:[], count:0, total:0 };
+      S.archive[period].files.push({ name:f.name, provider, at: new Date().toISOString() });
+      S.archive[period].count += txs.length;
+      S.archive[period].total = Math.round((S.archive[period].total + txs.reduce((s,t)=>s+t.amount,0))*100)/100;
+
+      f.status = 'done';
+      log(`  ✓ ${txs.length} transactions saved → period ${period} (${provider})`, 'lok');
+      log(`  → Archive: ${S.cfg.folder}\\${period.replace('-','_')}\\`, 'ldim');
+
+    } catch(err) {
+      f.status = 'error';
+      f.err = err.message;
+      log(`  ✗ ERROR: ${err.message}`, 'lerr');
+    }
+    renderFiles();
+  }
+
+  persist();
+  refreshPeriods();
+  btn.innerHTML = 'Process &amp; categorize statements';
+  btn.disabled = !files.some(f => f.status === 'ready');
+  log('\n─ Complete! Go to Dashboard or Transactions to review.', 'lok');
+}
+
+// ── Periods ────────────────────────────────────────────────────────────────
+function getPeriods() {
+  const p = [...new Set(S.txs.map(t => t.period))].sort().reverse();
+  if (!p.length) { const d = new Date(); p.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`); }
+  return p;
+}
+function fmtP(p) { try { const [y,m]=p.split('-'); return new Date(+y,+m-1).toLocaleString('default',{month:'long',year:'numeric'}); } catch(e){return p;} }
+function refreshPeriods() {
+  const opts = getPeriods().map(p=>`<option value="${p}">${fmtP(p)}</option>`).join('');
+  document.getElementById('dashPeriod').innerHTML = opts;
+  document.getElementById('txPeriod').innerHTML = opts;
+  document.getElementById('archFolder').textContent = `📁 ${S.cfg.folder}`;
+  document.getElementById('folderDisplay').textContent = S.cfg.folder;
+}
+
+// ── Dashboard ──────────────────────────────────────────────────────────────
+const COLS = { Groceries:'#1D9E75', Dining:'#D85A30', Travel:'#185FA5', Shopping:'#BA7517', Utilities:'#534AB7', Healthcare:'#D4537E', Entertainment:'#639922', Fuel:'#888780', Subscriptions:'#3266ad', Other:'#B4B2A9' };
+let pC, lC, bC;
+
+function renderDash() {
+  const period = document.getElementById('dashPeriod').value;
+  const txs = S.txs.filter(t => t.period === period);
+  const total = txs.reduce((s,t) => s+t.amount, 0);
+  const cats = {};
+  txs.forEach(t => { cats[t.category]=(cats[t.category]||0)+t.amount; });
+  const periods = getPeriods();
+  const pi = periods.indexOf(period)+1;
+  const prev = pi < periods.length ? S.txs.filter(t=>t.period===periods[pi]).reduce((s,t)=>s+t.amount,0) : 0;
+  const top = Object.entries(cats).sort((a,b)=>b[1]-a[1])[0];
+  const bp = S.cfg.budget ? Math.round(total/S.cfg.budget*100) : 0;
+
+  document.getElementById('metrics').innerHTML = `
+    <div class="mc"><div class="mc-lbl">Total spend</div><div class="mc-val">$${total.toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2})}</div><div class="mc-chg ${prev?(total>prev?'chg-up':'chg-dn'):''}">${prev?(total>prev?'▲':'▼')+' '+Math.abs(((total-prev)/prev)*100).toFixed(1)+'% vs prev':'first period'}</div></div>
+    <div class="mc"><div class="mc-lbl">Budget used</div><div class="mc-val">${bp}%</div><div class="mc-chg">of $${S.cfg.budget.toLocaleString()}</div></div>
+    <div class="mc"><div class="mc-lbl">Top category</div><div class="mc-val" style="font-size:17px">${top?top[0]:'—'}</div><div class="mc-chg">${top?'$'+top[1].toFixed(2):''}</div></div>
+    <div class="mc"><div class="mc-lbl">Avg transaction</div><div class="mc-val">$${txs.length?(total/txs.length).toFixed(2):'0.00'}</div><div class="mc-chg">${txs.length} total</div></div>`;
+
+  if (!txs.length) { document.getElementById('pieLegend').innerHTML = '<span style="color:var(--text2);font-size:13px">No data — upload a statement first</span>'; return; }
+
+  const cl = Object.keys(cats).sort((a,b)=>cats[b]-cats[a]);
+  const cv = cl.map(c=>Math.round(cats[c]*100)/100);
+  const cc = cl.map(c=>COLS[c]||'#888780');
+
+  document.getElementById('pieLegend').innerHTML = cl.map((c,i)=>
+    `<span class="leg-item"><span class="leg-dot" style="background:${cc[i]}"></span>${c} <strong>$${cv[i].toFixed(0)}</strong></span>`).join('');
+
+  if (pC) pC.destroy();
+  pC = new Chart(document.getElementById('pieC'), { type:'doughnut', data:{ labels:cl, datasets:[{data:cv,backgroundColor:cc,borderWidth:2,borderColor:'rgba(255,255,255,0.4)'}] }, options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false}, tooltip:{callbacks:{label:ctx=>` $${ctx.parsed.toFixed(2)}`}} } } });
+
+  const day = {};
+  txs.forEach(t => { day[t.date]=(day[t.date]||0)+t.amount; });
+  const days = Object.keys(day).sort();
+  if (lC) lC.destroy();
+  lC = new Chart(document.getElementById('lineC'), { type:'line', data:{ labels:days.map(d=>d.slice(5)), datasets:[{data:days.map(d=>+(day[d].toFixed(2))),borderColor:'#1D9E75',backgroundColor:'rgba(29,158,117,0.07)',tension:0.35,fill:true,pointRadius:3}] }, options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ y:{ticks:{callback:v=>'$'+v},grid:{color:'rgba(0,0,0,0.05)'}}, x:{ticks:{autoSkip:true,maxTicksLimit:10}} } } });
+
+  if (bC) bC.destroy();
+  bC = new Chart(document.getElementById('barC'), { type:'bar', data:{ labels:cl, datasets:[{data:cv,backgroundColor:cc,borderRadius:4}] }, options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>' $'+ctx.parsed.toFixed(2)}}}, scales:{ y:{ticks:{callback:v=>'$'+v},grid:{color:'rgba(0,0,0,0.05)'}}, x:{ticks:{autoSkip:false}} } } });
+}
+
+// ── Transactions ───────────────────────────────────────────────────────────
+let txCat = 'All';
+function renderTx() {
+  const period = document.getElementById('txPeriod').value;
+  let txs = S.txs.filter(t => t.period === period);
+  const cats = ['All', ...new Set(txs.map(t=>t.category))].sort();
+  document.getElementById('chips').innerHTML = cats.map(c =>
+    `<button class="chip ${c===txCat?'active':''}" onclick="setTxCat('${c}')">${c}</button>`).join('');
+  if (txCat !== 'All') txs = txs.filter(t => t.category === txCat);
+  txs.sort((a,b) => b.date.localeCompare(a.date));
+  document.getElementById('txBody').innerHTML = txs.length
+    ? txs.map(t=>`<tr><td style="color:var(--text2);white-space:nowrap">${t.date}</td><td>${xe(t.description)}</td><td><span class="badge" style="background:${COLS[t.category]}22;color:${COLS[t.category]}">${t.category}</span></td><td style="color:var(--text2);font-size:12px">${xe(t.source)}</td><td class="amt">$${t.amount.toFixed(2)}</td></tr>`).join('')
+    : `<tr><td colspan="5" style="text-align:center;padding:32px;color:var(--text2)">No transactions yet — upload a statement first</td></tr>`;
+}
+function setTxCat(c) { txCat = c; renderTx(); }
+
+// ── Archive ────────────────────────────────────────────────────────────────
+function renderArchive() {
+  document.getElementById('archFolder').textContent = `📁 ${S.cfg.folder}`;
+  const g = document.getElementById('archGrid');
+  const ps = Object.keys(S.archive).sort().reverse();
+  if (!ps.length) { g.innerHTML = `<div class="empty"><div style="font-size:32px;margin-bottom:12px">📁</div><div style="font-size:15px;font-weight:500;margin-bottom:4px;color:var(--text)">No archived statements yet</div><div>Processed statements appear here, organized by month</div></div>`; return; }
+  g.innerHTML = ps.map(p => {
+    const a = S.archive[p];
+    return `<div class="arch-card" onclick="document.getElementById('dashPeriod').value='${p}';go('dashboard')">
+      <div class="arch-month">${fmtP(p)}</div>
+      <div class="arch-meta">${a.files.length} file${a.files.length!==1?'s':''} · ${a.count} transactions</div>
+      <div class="arch-total">$${a.total.toFixed(2)}</div>
+      <div class="arch-tag">${p.replace('-','_')}</div>
+      ${a.files.map(f=>`<div style="font-size:11px;color:var(--text2);margin-top:4px">📄 ${xe(f.name)}</div>`).join('')}
+    </div>`;
+  }).join('');
+}
+
+// ── Settings ───────────────────────────────────────────────────────────────
+function openSettings() {
+  document.getElementById('sApiKey').value = S.apiKey;
+  document.getElementById('sFolderPath').value = S.cfg.folder;
+  document.getElementById('sBudget').value = S.cfg.budget;
+  document.getElementById('settingsModal').classList.add('open');
+}
+function closeSettings() { document.getElementById('settingsModal').classList.remove('open'); }
+function applySettings() {
+  const k = document.getElementById('sApiKey').value.trim();
+  if (k) S.apiKey = k;
+  S.cfg.folder = document.getElementById('sFolderPath').value.trim() || S.cfg.folder;
+  S.cfg.budget = parseFloat(document.getElementById('sBudget').value) || 3000;
+  persist();
+  refreshPeriods();
+  closeSettings();
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+hydrate();
+refreshPeriods();
+if (S.apiKey) {
+  go('upload');
+} else {
+  go('setup');
+}
+</script>
+</body>
+</html>
