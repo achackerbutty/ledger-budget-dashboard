@@ -3,7 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Ledger — Personal Budget Dashboard</title>
+<title>iDoLedger — Personal Budget Dashboard</title>
+<meta name="description" content="iDoLedger — AI-powered personal finance dashboard. Upload credit card statements and track spending across all your cards." />
+<meta name="theme-color" content="#1D9E75" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%231D9E75'/><text y='68' x='50' text-anchor='middle' font-size='52' font-family='serif' fill='white'>$</text></svg>" />
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <!-- Firebase -->
@@ -29,6 +32,7 @@
   .brand { display: flex; align-items: center; gap: 10px; }
   .brand-icon { width: 30px; height: 30px; border-radius: 9px; background: var(--green); display: flex; align-items: center; justify-content: center; font-size: 15px; color: white; font-weight: 600; }
   .brand-name { font-family: 'DM Serif Display', serif; font-size: 20px; letter-spacing: -0.3px; }
+  .brand-name span { color: var(--green); }
   .nav { display: flex; gap: 2px; }
   .nav-btn { padding: 6px 16px; border-radius: var(--radius); border: none; background: transparent; cursor: pointer; font-size: 13px; font-family: inherit; color: var(--text2); transition: background 0.15s, color 0.15s; }
   .nav-btn:hover { background: var(--surface2); color: var(--text); }
@@ -270,7 +274,7 @@
 <header class="header" style="display:none">
   <div class="brand">
     <div class="brand-icon">$</div>
-    <span class="brand-name">Ledger</span>
+    <span class="brand-name"><span>iDo</span>Ledger</span>
   </div>
   <nav class="nav">
     <button class="nav-btn active" onclick="go('upload')">Upload</button>
@@ -306,15 +310,15 @@
 <!-- Loading screen -->
 <div class="loading-screen active" id="loadingScreen">
   <div class="loading-spinner"></div>
-  <div class="loading-text">Loading Ledger...</div>
+  <div class="loading-text">Loading iDoLedger...</div>
 </div>
 
 <!-- Auth / Landing page -->
 <div class="auth-page" id="authPage">
   <div class="auth-hero">
     <div class="auth-hero-icon">$</div>
-    <div class="auth-hero-title">Ledger</div>
-    <div class="auth-hero-sub">Your personal finance dashboard. Upload credit card statements and get instant AI-powered spending insights.</div>
+    <div class="auth-hero-title"><span style="color:rgba(255,255,255,0.7)">iDo</span>Ledger</div>
+    <div class="auth-hero-sub">Your personal finance dashboard. Upload credit card statements and get instant AI-powered spending insights — from anywhere, on any device.</div>
     <div class="auth-features">
       <div class="auth-feat"><div class="auth-feat-dot"></div>AI categorization</div>
       <div class="auth-feat"><div class="auth-feat-dot"></div>Multi-card support</div>
@@ -341,7 +345,7 @@
             <input class="auth-input" id="login-password" type="password" placeholder="••••••••" autocomplete="current-password" />
           </div>
           <div class="auth-err" id="login-err"></div>
-          <button class="auth-btn" id="login-btn" onclick="doLogin()">Sign in to Ledger</button>
+          <button class="auth-btn" id="login-btn" onclick="doLogin()">Sign in to iDoLedger</button>
           <div class="auth-divider">
             <button onclick="doForgotPassword()" style="background:none;border:none;cursor:pointer;font-size:12px;color:var(--green-dark);font-family:inherit">Forgot password?</button>
           </div>
@@ -370,7 +374,8 @@
 
       <div class="auth-footer">
         Your data is private and encrypted.<br>
-        <a href="https://console.anthropic.com/settings/keys" target="_blank">Get your Anthropic API key →</a>
+        <a href="https://idoledger.com" target="_blank">idoledger.com</a> &nbsp;·&nbsp;
+        <a href="https://console.anthropic.com/settings/keys" target="_blank">Get Anthropic API key →</a>
       </div>
     </div>
   </div>
@@ -382,8 +387,8 @@
   <div class="view active" id="view-setup">
     <div class="setup-card">
       <div class="setup-icon">🔑</div>
-      <div class="setup-title">Welcome to Ledger</div>
-      <div class="setup-sub">This app uses Claude AI to parse your credit card statements and categorize your spending. Enter your Anthropic API key to get started. Your key is stored only in your browser's local storage.</div>
+      <div class="setup-title">Welcome to iDoLedger</div>
+      <div class="setup-sub">This app uses Claude AI to parse your credit card statements and categorize your spending. Enter your Anthropic API key to get started. Your key is stored securely in your account.</div>
       <div class="input-row">
         <input class="text-input" id="keyInput" type="password" placeholder="sk-ant-api03-..." />
         <button class="btn-primary" onclick="saveKey()">Continue →</button>
@@ -502,9 +507,12 @@
 <div class="modal-bg" id="settingsModal">
   <div class="modal">
     <div class="modal-title">Settings</div>
-    <div class="field">
+    <div class="field" id="apiKeyField">
       <label>Anthropic API key</label>
       <input id="sApiKey" type="password" placeholder="sk-ant-api03-..." style="font-family:monospace;font-size:12px" />
+      <div id="masterKeyNote" style="display:none;margin-top:6px;font-size:12px;color:#0F6E56;background:#E1F5EE;padding:6px 10px;border-radius:6px">
+        ✓ A shared API key is configured by the admin — you don't need your own.
+      </div>
     </div>
     <div class="field">
       <label>Archive folder path</label>
@@ -580,7 +588,29 @@ async function loadUserData() {
   } catch(e) { console.error('Load error:', e); }
 }
 
-// ── Auth UI helpers ────────────────────────────────────────────────────────
+// ── Master API key (Option 3) ──────────────────────────────────────────────
+// If a masterApiKey exists in Firestore config/app, all users share it.
+// To enable: in Firebase Console → Firestore → add document at config/app
+// with field: masterApiKey = "sk-ant-..."
+// To disable: delete that field or the document.
+let masterApiKey = null;
+
+async function loadMasterConfig() {
+  try {
+    const doc = await db.collection('config').doc('app').get();
+    if (doc.exists && doc.data().masterApiKey) {
+      masterApiKey = doc.data().masterApiKey;
+    }
+  } catch(e) {} // silently fail — no master key configured
+}
+
+function getEffectiveApiKey() {
+  return masterApiKey || S.apiKey;
+}
+
+function isMasterKeyMode() {
+  return !!masterApiKey;
+}
 function switchTab(tab) {
   document.getElementById('form-login').style.display = tab === 'login' ? 'block' : 'none';
   document.getElementById('form-signup').style.display = tab === 'signup' ? 'block' : 'none';
@@ -600,7 +630,7 @@ function clearAuthError(formId) {
 function setAuthLoading(formId, loading) {
   const btn = document.getElementById(formId + '-btn');
   btn.disabled = loading;
-  btn.textContent = loading ? 'Please wait...' : (formId === 'login' ? 'Sign in to Ledger' : 'Create account');
+  btn.textContent = loading ? 'Please wait...' : (formId === 'login' ? 'Sign in to iDoLedger' : 'Create account');
 }
 
 async function doLogin() {
@@ -651,7 +681,7 @@ async function doForgotPassword() {
 }
 
 async function doSignOut() {
-  if (!confirm('Sign out of Ledger?')) return;
+  if (!confirm('Sign out of iDoLedger?')) return;
   await auth.signOut();
 }
 
@@ -765,7 +795,7 @@ async function pdfToText(file) {
           const ct = await pg.getTextContent();
           text += ct.items.map(x => x.str).join(' ') + '\n';
         }
-        if (text.trim().length < 30) throw new Error('No text found in PDF. The file may be a scanned image — Ledger requires text-based PDFs.');
+        if (text.trim().length < 30) throw new Error('No text found in PDF. The file may be a scanned image — iDoLedger requires text-based PDFs.');
         resolve(text);
       } catch(err) { reject(err); }
     };
@@ -813,7 +843,7 @@ async function claude(system, user, maxTokens = 4096) {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      'x-api-key': S.apiKey,
+      'x-api-key': getEffectiveApiKey(),
       'anthropic-version': '2023-06-01',
       'anthropic-dangerous-direct-browser-access': 'true'
     },
@@ -844,7 +874,7 @@ function toAmount(v) {
 
 // ── Process ────────────────────────────────────────────────────────────────
 async function processAll() {
-  if (!S.apiKey) { alert('Please set your API key in Settings first.'); return; }
+  if (!getEffectiveApiKey()) { alert('Please set your API key in Settings first.'); return; }
   const btn = document.getElementById('processBtn');
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>Processing…';
@@ -1328,6 +1358,14 @@ function openSettings() {
   document.getElementById('sApiKey').value = S.apiKey;
   document.getElementById('sFolderPath').value = S.cfg.folder;
   document.getElementById('sBudget').value = S.cfg.budget;
+  // Show/hide API key field based on mode
+  if (isMasterKeyMode()) {
+    document.getElementById('sApiKey').style.display = 'none';
+    document.getElementById('masterKeyNote').style.display = 'block';
+  } else {
+    document.getElementById('sApiKey').style.display = 'block';
+    document.getElementById('masterKeyNote').style.display = 'none';
+  }
   document.getElementById('settingsModal').classList.add('open');
 }
 function closeSettings() { document.getElementById('settingsModal').classList.remove('open'); }
@@ -1348,10 +1386,12 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
 auth.onAuthStateChanged(async user => {
   document.getElementById('loadingScreen').classList.remove('active');
   if (user) {
+    // Load master config first — determines if users need their own API key
+    await loadMasterConfig();
     showApp(user);
     await loadUserData();
     refreshPeriods();
-    if (S.apiKey) {
+    if (getEffectiveApiKey()) {
       go('upload');
     } else {
       go('setup');
