@@ -160,7 +160,21 @@
   .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 6px; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* ── Pending approval page ── */
+  /* ── Usage meter ── */
+  .usage-meter { background: var(--surface2); border-radius: var(--radius-lg); padding: 14px 18px; margin-bottom: 16px; }
+  .usage-meter-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .usage-meter-label { font-size: 12px; color: var(--text2); }
+  .usage-meter-value { font-size: 12px; font-weight: 500; }
+  .usage-bar-track { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  .usage-bar-fill { height: 100%; border-radius: 3px; transition: width 0.4s ease; background: var(--green); }
+  .usage-bar-fill.warn { background: var(--amber); }
+  .usage-bar-fill.full { background: var(--red); }
+  .usage-blocked { background: #FAECE7; border: 0.5px solid #F0997B; border-radius: var(--radius-lg); padding: 16px 18px; margin-bottom: 16px; display: none; }
+  .usage-blocked.show { display: block; }
+  .usage-blocked-title { font-size: 14px; font-weight: 500; color: #993C1D; margin-bottom: 4px; }
+  .usage-blocked-sub { font-size: 13px; color: #993C1D; line-height: 1.6; }
+  .usage-blocked-link { color: #185FA5; text-decoration: none; font-weight: 500; }
+  .usage-blocked-link:hover { text-decoration: underline; }
   .pending-page { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 1000; align-items: center; justify-content: center; flex-direction: column; padding: 24px; }
   .pending-page.active { display: flex; }
   .pending-card { background: var(--surface); border-radius: var(--radius-xl); border: 0.5px solid var(--border); padding: 40px 36px; max-width: 480px; width: 100%; text-align: center; box-shadow: 0 4px 24px rgba(0,0,0,0.08); }
@@ -429,6 +443,33 @@
   <!-- Upload view -->
   <div class="view" id="view-upload">
     <div class="page-title">Upload statements</div>
+
+    <!-- Usage meter -->
+    <div class="usage-meter" id="usageMeter">
+      <div class="usage-meter-row">
+        <span class="usage-meter-label">Monthly usage</span>
+        <span class="usage-meter-value" id="usageMeterValue">0 / 20 statements</span>
+      </div>
+      <div class="usage-bar-track">
+        <div class="usage-bar-fill" id="usageBarFill" style="width:0%"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:6px">
+        <span style="font-size:11px;color:var(--text2)" id="usageCostLabel">~$0.00 used this month</span>
+        <span style="font-size:11px;color:var(--text2)" id="usageResetLabel"></span>
+      </div>
+    </div>
+
+    <!-- Blocked banner (shown when limit reached) -->
+    <div class="usage-blocked" id="usageBlocked">
+      <div class="usage-blocked-title">Monthly limit reached</div>
+      <div class="usage-blocked-sub">
+        You've used all <span id="blockedLimit">20</span> free statements this month. Your limit resets on the 1st of next month.<br><br>
+        To continue processing statements now, add credits to your Anthropic account at
+        <a class="usage-blocked-link" href="https://console.anthropic.com/settings/billing" target="_blank">console.anthropic.com/settings/billing</a>
+        — $5 gives you roughly 100–200 more statements.
+      </div>
+    </div>
+
     <div class="upload-card">
       <div class="upload-top">
         <div>
@@ -452,7 +493,8 @@
       </div>
       <button class="process-btn" id="processBtn" disabled onclick="processAll()">Process &amp; categorize statements</button>
     </div>
-  </div>
+  </div><!-- end upload-card -->
+  </div><!-- end view-upload -->
 
   <!-- Dashboard view -->
   <div class="view" id="view-dashboard">
@@ -618,7 +660,89 @@ async function loadUserData() {
   } catch(e) { console.error('Load error:', e); }
 }
 
-// ── Master API key (Option 3) ──────────────────────────────────────────────
+// ── Usage tracking ─────────────────────────────────────────────────────────
+const MONTHLY_STATEMENT_LIMIT = 20;   // free statements per month
+const COST_PER_STATEMENT = 0.04;      // avg $ per statement (conservative)
+// Admin is exempt from limits
+const isAdmin = () => currentUser && currentUser.email === ADMIN_EMAIL;
+
+async function loadUsageData() {
+  if (!currentUser) return { count: 0, cost: 0, month: '' };
+  const monthKey = getCurrentUsageMonth();
+  try {
+    const doc = await db.collection('usage').doc(currentUser.uid).get();
+    if (doc.exists) {
+      const d = doc.data();
+      // Reset if new month
+      if (d.month !== monthKey) return { count: 0, cost: 0, month: monthKey };
+      return { count: d.count || 0, cost: d.cost || 0, month: d.month };
+    }
+  } catch(e) {}
+  return { count: 0, cost: 0, month: monthKey };
+}
+
+async function incrementUsage(statementsProcessed) {
+  if (!currentUser || isAdmin()) return;
+  const monthKey = getCurrentUsageMonth();
+  try {
+    const ref = db.collection('usage').doc(currentUser.uid);
+    const doc = await ref.get();
+    let current = { count: 0, cost: 0, month: monthKey };
+    if (doc.exists && doc.data().month === monthKey) {
+      current = doc.data();
+    }
+    await ref.set({
+      uid: currentUser.uid,
+      email: currentUser.email,
+      month: monthKey,
+      count: (current.count || 0) + statementsProcessed,
+      cost: Math.round(((current.cost || 0) + (statementsProcessed * COST_PER_STATEMENT)) * 100) / 100,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  } catch(e) { console.error('Usage tracking error:', e); }
+}
+
+function getCurrentUsageMonth() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+}
+
+function getNextResetDate() {
+  const d = new Date();
+  const next = new Date(d.getFullYear(), d.getMonth()+1, 1);
+  return next.toLocaleDateString('default', { month: 'long', day: 'numeric' });
+}
+
+async function renderUsageMeter() {
+  if (!currentUser) return;
+  const usage = await loadUsageData();
+  const limit = MONTHLY_STATEMENT_LIMIT;
+  const count = usage.count || 0;
+  const cost = usage.cost || 0;
+  const pct = Math.min(100, Math.round((count / limit) * 100));
+  const isBlocked = !isAdmin() && count >= limit;
+
+  // Update meter
+  document.getElementById('usageMeterValue').textContent = isAdmin()
+    ? 'Unlimited (admin)'
+    : `${count} / ${limit} statements`;
+  document.getElementById('usageCostLabel').textContent = `~$${cost.toFixed(2)} used this month`;
+  document.getElementById('usageResetLabel').textContent = `Resets ${getNextResetDate()}`;
+
+  const fill = document.getElementById('usageBarFill');
+  fill.style.width = isAdmin() ? '0%' : `${pct}%`;
+  fill.className = 'usage-bar-fill' + (pct >= 100 ? ' full' : pct >= 75 ? ' warn' : '');
+
+  // Show/hide blocked banner
+  document.getElementById('usageBlocked').classList.toggle('show', isBlocked);
+  document.getElementById('blockedLimit').textContent = limit;
+
+  // Disable process button if blocked
+  const hasFiles = files.some(f => f.status === 'ready');
+  document.getElementById('processBtn').disabled = !hasFiles || isBlocked;
+
+  return isBlocked;
+}
 // If a masterApiKey exists in Firestore config/app, all users share it.
 // To enable: in Firebase Console → Firestore → add document at config/app
 // with field: masterApiKey = "sk-ant-..."
@@ -802,6 +926,7 @@ function go(name) {
   if (name === 'dashboard') renderDash();
   if (name === 'transactions') renderTx();
   if (name === 'archive') renderArchive();
+  if (name === 'upload') renderUsageMeter();
 }
 
 function toggleMobileNav() {
@@ -948,6 +1073,15 @@ function toAmount(v) {
 // ── Process ────────────────────────────────────────────────────────────────
 async function processAll() {
   if (!getEffectiveApiKey()) { alert('Please set your API key in Settings first.'); return; }
+
+  // Check usage limit before processing
+  if (!isAdmin()) {
+    const usage = await loadUsageData();
+    if (usage.count >= MONTHLY_STATEMENT_LIMIT) {
+      renderUsageMeter();
+      return;
+    }
+  }
   const btn = document.getElementById('processBtn');
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>Processing…';
@@ -1100,6 +1234,8 @@ ${statementChunk}`,
 
       log(`  → Archive reference: ${S.cfg.folder} / ${period.replace('-','_')}`, 'ldim');
       f.status = 'done';
+      // Track usage for this statement
+      await incrementUsage(1);
 
     } catch(err) {
       f.status = 'error';
@@ -1114,6 +1250,8 @@ ${statementChunk}`,
   btn.innerHTML = 'Process &amp; categorize statements';
   btn.disabled = !files.some(f => f.status === 'ready');
   log('\n─ Complete! Go to Dashboard or Transactions to review.', 'lok');
+  // Refresh usage meter after processing
+  await renderUsageMeter();
 }
 
 // ── Periods ────────────────────────────────────────────────────────────────
@@ -1474,6 +1612,7 @@ auth.onAuthStateChanged(async user => {
     refreshPeriods();
     if (getEffectiveApiKey()) {
       go('upload');
+      renderUsageMeter();
     } else {
       go('setup');
     }
