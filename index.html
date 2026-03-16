@@ -408,10 +408,6 @@
           <div class="upload-heading">Drop your PDF statements</div>
           <div class="upload-sub">Works with Amex, Chase, Citi, CapitalOne, and any text-based PDF</div>
         </div>
-        <div class="folder-row">
-          <span class="folder-lbl">Archive folder:</span>
-          <span class="folder-val" id="folderDisplay">C:\Users\Desktop\CreditCardStatements</span>
-        </div>
       </div>
       <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileIn').click()">
         <div class="drop-icon">📄</div>
@@ -494,9 +490,13 @@
 
   <!-- Archive view -->
   <div class="view" id="view-archive">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
       <div style="font-size:16px;font-weight:500">Statement archive</div>
-      <div style="font-size:12px;color:var(--text2)" id="archFolder"></div>
+      <div style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px">
+        <span>📁</span>
+        <span id="archFolder" style="color:var(--green-dark);font-weight:500"></span>
+        <button onclick="openSettings()" style="font-size:11px;padding:2px 8px;border-radius:4px;border:0.5px solid var(--border2);background:transparent;cursor:pointer;color:var(--text2);font-family:inherit">Edit</button>
+      </div>
     </div>
     <div class="arch-grid" id="archGrid"></div>
   </div>
@@ -515,8 +515,11 @@
       </div>
     </div>
     <div class="field">
-      <label>Archive folder path</label>
-      <input id="sFolderPath" style="font-family:monospace;font-size:12px" />
+      <label>Archive reference name</label>
+      <input id="sFolderPath" placeholder="e.g. My Statements, Credit Cards 2026" />
+      <div style="margin-top:6px;font-size:12px;color:var(--text2)">
+        A label to identify where your statements are stored. This is for your reference only — statements are archived securely in your account.
+      </div>
     </div>
     <div class="field">
       <label>Monthly budget ($)</label>
@@ -555,7 +558,7 @@ const S = {
   txs: [],
   archive: {},
   interest: {},
-  cfg: { folder: 'C:\\Users\\Desktop\\CreditCardStatements', budget: 3000 }
+  cfg: { folder: 'My Credit Card Statements', budget: 3000 }
 };
 
 // ── Firestore persistence ──────────────────────────────────────────────────
@@ -744,7 +747,7 @@ function saveKey() {
   if (!v.startsWith('sk-ant-')) { alert('Please enter a valid key starting with sk-ant-'); return; }
   S.apiKey = v;
   persist();
-  document.getElementById('folderDisplay').textContent = S.cfg.folder;
+  // folder display removed - now in settings only
   go('upload');
   refreshPeriods();
 }
@@ -1025,7 +1028,7 @@ ${statementChunk}`,
         log(`  → Interest recorded: $${interestAmt.toFixed(2)} (${provider})`, 'lok');
       }
 
-      log(`  → Archive: ${S.cfg.folder}\\${period.replace('-','_')}\\`, 'ldim');
+      log(`  → Archive reference: ${S.cfg.folder} / ${period.replace('-','_')}`, 'ldim');
       f.status = 'done';
 
     } catch(err) {
@@ -1055,8 +1058,8 @@ function refreshPeriods() {
   const opts = getPeriods().map(p=>`<option value="${p}">${fmtP(p)}</option>`).join('');
   document.getElementById('dashPeriod').innerHTML = opts;
   document.getElementById('txPeriod').innerHTML = opts;
-  document.getElementById('archFolder').textContent = `📁 ${S.cfg.folder}`;
-  document.getElementById('folderDisplay').textContent = S.cfg.folder;
+  document.getElementById('archFolder').textContent = S.cfg.folder;
+  // folder display removed - now in settings only
 }
 
 // ── Dashboard ──────────────────────────────────────────────────────────────
@@ -1337,7 +1340,7 @@ function recategorizeAll() {
 
 // ── Archive ────────────────────────────────────────────────────────────────
 function renderArchive() {
-  document.getElementById('archFolder').textContent = `📁 ${S.cfg.folder}`;
+  document.getElementById('archFolder').textContent = S.cfg.folder;
   const g = document.getElementById('archGrid');
   const ps = Object.keys(S.archive).sort().reverse();
   if (!ps.length) { g.innerHTML = `<div class="empty"><div style="font-size:32px;margin-bottom:12px">📁</div><div style="font-size:15px;font-weight:500;margin-bottom:4px;color:var(--text)">No archived statements yet</div><div>Processed statements appear here, organized by month</div></div>`; return; }
