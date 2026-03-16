@@ -160,7 +160,18 @@
   .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 6px; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* ── Landing / Auth page ── */
+  /* ── Pending approval page ── */
+  .pending-page { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 1000; align-items: center; justify-content: center; flex-direction: column; padding: 24px; }
+  .pending-page.active { display: flex; }
+  .pending-card { background: var(--surface); border-radius: var(--radius-xl); border: 0.5px solid var(--border); padding: 40px 36px; max-width: 480px; width: 100%; text-align: center; box-shadow: 0 4px 24px rgba(0,0,0,0.08); }
+  .pending-icon { font-size: 48px; margin-bottom: 16px; }
+  .pending-title { font-family: 'DM Serif Display', serif; font-size: 24px; margin-bottom: 10px; }
+  .pending-sub { font-size: 14px; color: var(--text2); line-height: 1.7; margin-bottom: 24px; }
+  .pending-email { display: inline-block; background: var(--surface2); border-radius: var(--radius); padding: 6px 14px; font-size: 13px; font-family: monospace; color: var(--text); margin-bottom: 24px; }
+  .pending-steps { text-align: left; background: var(--surface2); border-radius: var(--radius-lg); padding: 16px 20px; margin-bottom: 24px; }
+  .pending-step { font-size: 13px; color: var(--text2); padding: 5px 0; display: flex; gap: 10px; align-items: flex-start; }
+  .pending-step-num { width: 20px; height: 20px; background: var(--green-light); color: var(--green-dark); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; flex-shrink: 0; margin-top: 1px; }
+  .pending-signout { background: none; border: 0.5px solid var(--border2); border-radius: var(--radius); padding: 8px 20px; cursor: pointer; font-size: 13px; font-family: inherit; color: var(--text2); }
   .auth-page { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 1000; overflow-y: auto; }
   .auth-page.active { display: flex; flex-direction: column; }
   .auth-hero { background: var(--green); padding: 48px 32px 40px; text-align: center; }
@@ -378,6 +389,22 @@
         <a href="https://console.anthropic.com/settings/keys" target="_blank">Get Anthropic API key →</a>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- Pending approval page -->
+<div class="pending-page" id="pendingPage">
+  <div class="pending-card">
+    <div class="pending-icon">⏳</div>
+    <div class="pending-title">Awaiting Approval</div>
+    <div class="pending-sub">Your account has been created successfully. The iDoLedger admin needs to approve your access before you can start using the app.</div>
+    <div class="pending-email" id="pendingEmail"></div>
+    <div class="pending-steps">
+      <div class="pending-step"><div class="pending-step-num">1</div><span>Your request has been sent to the admin</span></div>
+      <div class="pending-step"><div class="pending-step-num">2</div><span>You'll get access as soon as it's approved</span></div>
+      <div class="pending-step"><div class="pending-step-num">3</div><span>Sign in again after approval to get started</span></div>
+    </div>
+    <button class="pending-signout" onclick="doSignOut()">Sign out</button>
   </div>
 </div>
 
@@ -663,6 +690,10 @@ async function doSignup() {
   try {
     const cred = await auth.createUserWithEmailAndPassword(email, pass);
     await cred.user.updateProfile({ displayName: name });
+    // Request approval (admin is auto-approved)
+    if (email !== ADMIN_EMAIL) {
+      await requestApproval(cred.user);
+    }
   } catch(e) {
     setAuthLoading('signup', false);
     const msgs = { 'auth/email-already-in-use': 'An account with this email already exists.', 'auth/invalid-email': 'Invalid email address.', 'auth/weak-password': 'Password is too weak.' };
@@ -688,12 +719,50 @@ async function doSignOut() {
   await auth.signOut();
 }
 
+// ── Approval system ────────────────────────────────────────────────────────
+// Admin email — change this to your email address
+const ADMIN_EMAIL = 'achackerbutty@gmail.com';
+
+async function checkApprovalStatus(user) {
+  // Admin is always approved
+  if (user.email === ADMIN_EMAIL) return 'approved';
+  try {
+    const doc = await db.collection('users_approval').doc(user.uid).get();
+    if (doc.exists) return doc.data().status || 'pending';
+    return 'pending';
+  } catch(e) { return 'pending'; }
+}
+
+async function requestApproval(user) {
+  try {
+    await db.collection('users_approval').doc(user.uid).set({
+      uid: user.uid,
+      email: user.email,
+      name: user.displayName || '',
+      status: 'pending',
+      requestedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  } catch(e) { console.error('Approval request error:', e); }
+}
+
+function showPending(user) {
+  document.getElementById('pendingPage').classList.add('active');
+  document.getElementById('authPage').classList.remove('active');
+  document.getElementById('appMain').style.display = 'none';
+  document.querySelector('.header').style.display = 'none';
+  document.getElementById('pendingEmail').textContent = user.email;
+}
+
+function hidePending() {
+  document.getElementById('pendingPage').classList.remove('active');
+}
+
 function showApp(user) {
   currentUser = user;
+  hidePending();
   document.getElementById('authPage').classList.remove('active');
   document.getElementById('appMain').style.display = 'block';
   document.querySelector('.header').style.display = 'flex';
-  // Show user badge
   const name = user.displayName || user.email;
   document.getElementById('userAvatar').textContent = name.charAt(0).toUpperCase();
   document.getElementById('userEmail').textContent = user.displayName ? `Hi, ${user.displayName.split(' ')[0]}!` : user.email;
@@ -703,6 +772,7 @@ function showApp(user) {
 function showAuth() {
   currentUser = null;
   S.txs = []; S.archive = {}; S.interest = {};
+  hidePending();
   document.getElementById('authPage').classList.add('active');
   document.getElementById('appMain').style.display = 'none';
   document.querySelector('.header').style.display = 'none';
@@ -1389,6 +1459,14 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
 auth.onAuthStateChanged(async user => {
   document.getElementById('loadingScreen').classList.remove('active');
   if (user) {
+    // Check approval status first
+    const status = await checkApprovalStatus(user);
+    if (status !== 'approved') {
+      // Ensure approval request exists
+      await requestApproval(user);
+      showPending(user);
+      return;
+    }
     // Load master config first — determines if users need their own API key
     await loadMasterConfig();
     showApp(user);
