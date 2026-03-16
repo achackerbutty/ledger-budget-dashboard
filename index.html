@@ -621,6 +621,31 @@ const db = firebase.firestore();
 
 let currentUser = null;
 
+// ── API key encryption ─────────────────────────────────────────────────────
+// Encrypts the API key before storing in Firestore so it's never plain text
+async function encryptApiKey(apiKey, uid) {
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(uid.padEnd(32,'x').slice(0,32)), 'AES-GCM', false, ['encrypt']);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, keyMaterial, enc.encode(apiKey));
+  const buf = new Uint8Array(iv.byteLength + encrypted.byteLength);
+  buf.set(iv, 0);
+  buf.set(new Uint8Array(encrypted), iv.byteLength);
+  return btoa(String.fromCharCode(...buf));
+}
+
+async function decryptApiKey(encryptedB64, uid) {
+  try {
+    const enc = new TextEncoder();
+    const buf = Uint8Array.from(atob(encryptedB64), c => c.charCodeAt(0));
+    const iv = buf.slice(0, 12);
+    const data = buf.slice(12);
+    const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(uid.padEnd(32,'x').slice(0,32)), 'AES-GCM', false, ['decrypt']);
+    const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, keyMaterial, data);
+    return new TextDecoder().decode(decrypted);
+  } catch(e) { return null; }
+}
+
 // ── State ──────────────────────────────────────────────────────────────────
 const S = {
   apiKey: '',
@@ -634,12 +659,14 @@ const S = {
 async function persist() {
   if (!currentUser) { localStorage.setItem('ledger', JSON.stringify({ txs: S.txs, archive: S.archive, interest: S.interest, cfg: S.cfg, apiKey: S.apiKey })); return; }
   try {
+    // Encrypt API key before storing
+    const encryptedKey = S.apiKey ? await encryptApiKey(S.apiKey, currentUser.uid) : '';
     await db.collection('users').doc(currentUser.uid).set({
       txs: S.txs,
       archive: S.archive,
       interest: S.interest,
       cfg: S.cfg,
-      apiKey: S.apiKey,
+      apiKey: encryptedKey,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     });
   } catch(e) { console.error('Save error:', e); }
@@ -655,7 +682,15 @@ async function loadUserData() {
       S.archive = d.archive || {};
       S.interest = d.interest || {};
       if (d.cfg) S.cfg = { ...S.cfg, ...d.cfg };
-      if (d.apiKey) S.apiKey = d.apiKey;
+      if (d.apiKey) {
+        // Try to decrypt — falls back gracefully if stored as plain text (old format)
+        const decrypted = await decryptApiKey(d.apiKey, currentUser.uid);
+        S.apiKey = decrypted || (d.apiKey.startsWith('sk-ant-') ? d.apiKey : '');
+        // Re-save with encryption if it was stored as plain text
+        if (!decrypted && d.apiKey.startsWith('sk-ant-')) {
+          persist();
+        }
+      }
     }
   } catch(e) { console.error('Load error:', e); }
 }
