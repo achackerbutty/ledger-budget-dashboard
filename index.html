@@ -300,6 +300,7 @@
   <div class="brand">
     <div class="brand-icon">$</div>
     <span class="brand-name"><span>iDo</span>Ledger</span>
+    <span id="header-version" style="font-size:10px;color:var(--text3);opacity:0.5;margin-left:6px;align-self:flex-end;padding-bottom:3px;"></span>
   </div>
   <nav class="nav">
     <button class="nav-btn active" onclick="go('upload')">Upload</button>
@@ -400,7 +401,8 @@
       <div class="auth-footer">
         Your data is private and encrypted.<br>
         <a href="https://idoledger.com" target="_blank">idoledger.com</a> &nbsp;·&nbsp;
-        <a href="https://console.anthropic.com/settings/keys" target="_blank">Get Anthropic API key →</a>
+        <a href="https://console.anthropic.com/settings/keys" target="_blank">Get Anthropic API key →</a><br>
+        <span id="app-version-display" style="font-size:11px;color:var(--text3);opacity:0.6;"></span>
       </div>
     </div>
   </div>
@@ -602,6 +604,8 @@
 </div>
 
 <script>
+const APP_VERSION = 'v1.1.0';
+
 // ── Firebase Configuration ─────────────────────────────────────────────────
 // REPLACE these values with your own Firebase project config
 // Get them from: Firebase Console → Project Settings → Your apps → Web app
@@ -1639,6 +1643,28 @@ function applySettings() {
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
 // Firebase auth state listener — single source of truth
+
+// Set version display — fetch live commit hash from GitHub
+async function setVersionDisplay() {
+  let label = APP_VERSION;
+  try {
+    const res = await fetch('https://api.github.com/repos/achackerbutty/ledger-budget-dashboard/commits/main');
+    if (res.ok) {
+      const data = await res.json();
+      const hash = (data.sha || '').slice(0, 7);
+      const date = data.commit?.committer?.date
+        ? new Date(data.commit.committer.date).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })
+        : '';
+      label = `${APP_VERSION} · ${hash}${date ? ' · ' + date : ''}`;
+    }
+  } catch(e) {}
+  const versionEl = document.getElementById('app-version-display');
+  if (versionEl) versionEl.textContent = label;
+  const headerVer = document.getElementById('header-version');
+  if (headerVer) headerVer.textContent = label;
+}
+setVersionDisplay();
+
 auth.onAuthStateChanged(async user => {
   document.getElementById('loadingScreen').classList.remove('active');
   if (user) {
