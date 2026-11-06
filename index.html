@@ -685,10 +685,14 @@ async function loadUserData() {
       if (d.apiKey) {
         // Try to decrypt — falls back gracefully if stored as plain text (old format)
         const decrypted = await decryptApiKey(d.apiKey, currentUser.uid);
-        S.apiKey = decrypted || (d.apiKey.startsWith('sk-ant-') ? d.apiKey : '');
-        // Re-save with encryption if it was stored as plain text
-        if (!decrypted && d.apiKey.startsWith('sk-ant-')) {
-          persist();
+        if (decrypted && decrypted.startsWith('sk-ant-')) {
+          S.apiKey = decrypted;
+        } else if (d.apiKey.startsWith('sk-ant-')) {
+          // Plain text legacy key — use it and re-save encrypted
+          S.apiKey = d.apiKey;
+          persist(); // silently re-encrypt
+        } else {
+          S.apiKey = ''; // corrupted — user will need to re-enter
         }
       }
     }
@@ -1072,16 +1076,18 @@ function parseJSON(text) {
 
 // ── Anthropic API call ─────────────────────────────────────────────────────
 async function claude(system, user, maxTokens = 4096) {
+  const apiKey = getEffectiveApiKey();
+  if (!apiKey) throw new Error('No API key set. Please add your key in Settings.');
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      'x-api-key': getEffectiveApiKey(),
+      'x-api-key': apiKey,
       'anthropic-version': '2023-06-01',
       'anthropic-dangerous-direct-browser-access': 'true'
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-5-5',
       max_tokens: maxTokens,
       system,
       messages: [{ role: 'user', content: user }]
@@ -1089,7 +1095,11 @@ async function claude(system, user, maxTokens = 4096) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(`API error ${res.status}: ${err.error?.message || res.statusText}`);
+    const msg = err.error?.message || res.statusText;
+    if (res.status === 401) throw new Error('API error 401: Invalid API key. Please check your key in Settings.');
+    if (res.status === 400) throw new Error(`API error 400: ${msg}`);
+    if (res.status === 429) throw new Error('API error 429: Rate limit reached. Please wait a moment and try again.');
+    throw new Error(`API error ${res.status}: ${msg}`);
   }
   const d = await res.json();
   return d.content?.map(b => b.text || '').join('') || '';
